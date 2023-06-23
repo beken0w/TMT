@@ -10,20 +10,17 @@ class Task:
         return f"Заголовок: {self.title}\nОписание: {self.description}"
 
     def beautify_response(self, rows):
+        statuses = []
+        ids = []
         result = []
         for row in rows:
-            result.append("=======================================")
-            result.append(f"id: {row[0]}\n"
+            ids.append(row[0])
+            statuses.append(row[3])
+            result.append(f"{' '*40}Задача №{row[0]}\n\n"
                           f"Заголовок: {row[1]}\n"
                           f"Описание: {row[2]}\n"
-                          f"Статус: {'Выполняется' if row[3] == 0 else 'Завершена'}\n")
-            if row[3] == 0:
-                result.append(f"Завершить задачу: <a href='tg://bot_command?/done {row[0]}'>/done {row[0]}</a>\n"
-                              f"Удалить задачу <a href='tg://bot_command?/delete {row[0]}'>/delete {row[0]}</a>")
-            else:
-                result.append(f'Удалить задачу /delete {row[0]}')
-        result.append("=======================================")
-        return "\n".join(result)
+                          f"Статус: {'💼 Невыполнена' if row[3] == 0 else '✅ Выполнена'}")
+        return ids, statuses, result
 
     def select_tasks(self):
         conn = sqlite3.connect('main.db')
@@ -50,7 +47,7 @@ class Task:
         conn = sqlite3.connect('main.db')
         cursor = conn.cursor()
         print("Connection successful!")
-        cursor.execute('update tasks set status = 1 where id = ?;', (id))
+        cursor.execute('update tasks set status = 1 where id = ?;', (id,))
         conn.commit()
         conn.close()
         print("Connection disconnected!")
@@ -59,7 +56,7 @@ class Task:
         conn = sqlite3.connect('main.db')
         cursor = conn.cursor()
         print("Connection successful!")
-        cursor.execute('delete from tasks where id = ?;', (id))
+        cursor.execute('delete from tasks where id = ?;', (id,))
         conn.commit()
         conn.close()
         print("Connection disconnected!")
