@@ -7,10 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-if os.getenv("db_name") is not None:
-    db_name = os.getenv('db_name')
-else:
-    raise Exception("Отсутствует имя файла базы данных в переменных окружения")
+db_name = os.getenv('db_name', default="main.db")
 
 logging.basicConfig(level=logging.INFO,
                     filename='log_file.log',
