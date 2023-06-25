@@ -11,8 +11,7 @@ from models import Task
 
 logging.basicConfig(level=logging.INFO,
                     filename='log_file.log',
-                    filemode='a',
-                    encoding='UTF-8')
+                    filemode='a')
 
 load_dotenv()
 if os.getenv("token") is not None:
