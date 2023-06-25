@@ -11,8 +11,7 @@ db_name = os.getenv('db_name', default="main.db")
 
 logging.basicConfig(level=logging.INFO,
                     filename='log_file.log',
-                    filemode='a',
-                    encoding='UTF-8')
+                    filemode='a')
 
 
 class Task:
