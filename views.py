@@ -7,6 +7,7 @@ from telebot import types
 from dotenv import load_dotenv
 
 from models import Task
+from parse_exchange import convert_to_rub
 
 
 logging.basicConfig(level=logging.INFO,
@@ -30,7 +31,6 @@ else:
 obj = Task()
 
 
-@bot.message_handler(commands=['commands'])
 def actual_commands(message):
     text =  "Список доступных команд:\n\n"\
             "/list - список задач,\n"\
@@ -53,12 +53,12 @@ def start_message(message):
     btn1 = types.KeyboardButton("💬 Команды")
     btn2 = types.KeyboardButton("📜 Список задач")
     btn3 = types.KeyboardButton("📝 Добавить задачу")
-    markup.add(btn1, btn2, btn3)
+    btn4 = types.KeyboardButton("💱 Курс 'МИР'")
+    markup.add(btn1, btn2, btn3, btn4)
     bot.send_message(message.chat.id, text=text, reply_markup=markup)
     logging.info("Приветствие пользователя")
 
 
-@bot.message_handler(commands=['add'])
 def get_task_info(message):
     bot.send_message(message.chat.id, "🔤 Введите заголовок задачи:")
     bot.register_next_step_handler(message, take_title)
@@ -72,7 +72,7 @@ def take_title(message):
 
 def take_description(message):
     obj.add_value('description', message.text)
-    obj.insert_task()
+    obj.insert_task(message.from_user.id)
     bot.send_message(message.chat.id, "❕ Задача создана!")
     chat_id = message.chat.id
     ids, statuses, result = obj.get_created_task()
@@ -89,60 +89,39 @@ def take_description(message):
     logging.info("Задача создана")
 
 
-@bot.message_handler(commands=['done'])
-def update_status(message, from_button=False):
-    if not from_button:
-        if len(message.text) < 7:
-            bot.send_message(message.chat.id, text="❗ Не хватает ID задачи")
-            logging.error("Не хватает ID задачи")
-            return
-        else:
-            id = message.text.split()[1]
-            chat_id = message.chat.id
-    else:
-        id = message.data.split()[1]
-        chat_id = message.message.chat.id
+def update_status(message):
+    id = message.data.split()[1]
+    chat_id = message.message.chat.id
 
-    if id.isdigit() and obj.is_exist(id) == (1,):
-        if obj.check_status(id) != (1,):
-            obj.update_status(id)
-            text = "❕ Задача отмечена выполненной"
-        else:
-            text = "❗ Задача ранее была отмечена выполненной"
-            logging.error("Попытка выполнить уже завершенную задачу")
+    if obj.is_exist(id) == (1,) and obj.check_status(id) != (1,):
+        obj.update_status(id)
+        return True
+    elif obj.check_status(id) == (1,):
+        text = "❗ Задача ранее была отмечена выполненной"
+        logging.error("Попытка выполнить уже завершенную задачу")
     else:
         text = "❗ Задачи с данным id не существует"
     bot.send_message(chat_id=chat_id, text=text)
+    return False
     logging.info(f"Отработала функция UPDATE_STATUS: {text}")
 
 
-@bot.message_handler(commands=['delete'])
-def delete_task(message, from_button=False):
-    if not from_button:
-        if len(message.text) < 9:
-            bot.send_message(message.chat.id, text="❗ Не хватает ID задачи")
-            logging.error("❗ Не хватает ID задачи")
-            return
-        else:
-            id = message.text.split()[1]
-            chat_id = message.chat.id
-    else:
-        id = message.data.split()[1]
-        chat_id = message.message.chat.id
-
+def delete_task(message):
+    id = message.data.split()[1]
+    chat_id = message.message.chat.id
+    logging.info("Работает функция DELETE_TASK")
     if obj.is_exist(id) == (1,):
         obj.delete_task(id)
-        text = "❕ Задача успешно удалена"
+        return True
     else:
         text = "❗ Задачи с данным id не существует"
-    bot.send_message(chat_id=chat_id, text=text)
-    logging.info(f"Отработала функция DELETE_TASK: {text}")
+        bot.send_message(chat_id=chat_id, text=text)
+        return False
 
 
-@bot.message_handler(commands=['list'])
 def get_task_list(message):
     chat_id = message.chat.id
-    ids, statuses, result = obj.select_tasks()
+    ids, statuses, result = obj.select_tasks(message.from_user.id)
     if len(ids) > 0:
         for i in range(len(ids)):
             keyboard = types.InlineKeyboardMarkup()
@@ -171,24 +150,29 @@ def handle_query(call):
     if arg.isdigit():
         if call.data.startswith('/delete'):
             logging.info("Команда /delete запущена с кнопки")
-            bot.delete_message(chat_id=call.message.chat.id,
-                               message_id=call.message.message_id)
-            delete_task(call, True)
+            result = delete_task(call)
+            if result:
+                text = call.message.text.replace('💼', '').replace('✅', '')[:call.message.text.find('\n')]
+                new_message_text = f"{text} успешно удалена"
+                bot.edit_message_text(chat_id=call.message.chat.id,
+                                      message_id=call.message.message_id,
+                                      text=new_message_text)
 
         elif call.data.startswith('/done'):
             logging.info("Команда /done запущена с кнопки")
-            update_status(call, True)
-            keyboard = types.InlineKeyboardMarkup()
-            button2 = types.InlineKeyboardButton(text='Удалить задачу',
-                                                 callback_data=f"/delete {call.data.split()[1]}")
-            keyboard.add(button2)
-            new_message_text = call.message.text.replace('💼 Не выполнена', '✅ Выполнена')
-            bot.edit_message_text(chat_id=call.message.chat.id,
-                                  message_id=call.message.message_id,
-                                  text=new_message_text)
-            bot.edit_message_reply_markup(chat_id=call.message.chat.id,
-                                          message_id=call.message.message_id,
-                                          reply_markup=keyboard)
+            result = update_status(call)
+            if result:
+                keyboard = types.InlineKeyboardMarkup()
+                button2 = types.InlineKeyboardButton(text='Удалить задачу',
+                                                     callback_data=f"/delete {call.data.split()[1]}")
+                keyboard.add(button2)
+                new_message_text = call.message.text.replace('💼 Не выполнена', '✅ Выполнена')
+                bot.edit_message_text(chat_id=call.message.chat.id,
+                                      message_id=call.message.message_id,
+                                      text=new_message_text)
+                bot.edit_message_reply_markup(chat_id=call.message.chat.id,
+                                              message_id=call.message.message_id,
+                                              reply_markup=keyboard)
 
     else:
         bot.send_message(chat_id, text="❗ Не хватает ID задачи")
@@ -203,6 +187,8 @@ def urls(message):
         get_task_list(message)
     elif message.text == "📝 Добавить задачу":
         get_task_info(message)
+    elif message.text == "💱 Курс 'МИР'":
+        bot.send_message(message.chat.id, text=convert_to_rub())
     else:
         bot.send_message(message.chat.id, text="❗ Такой команды не существует")
         actual_commands(message)
