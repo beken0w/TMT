@@ -6,8 +6,10 @@ import telebot
 from telebot import types
 from dotenv import load_dotenv
 
-from models import Task
-from parse_exchange import convert_to_rub
+from models import Task, Exchange
+from core.keyboards.reply import permanent_kb
+from core.keyboards.inline import delete_kb, done_delete_kb, currency_kb
+from parse_exchange import convert_to_rub, count_rub, parse_mir
 
 
 logging.basicConfig(level=logging.INFO,
@@ -29,6 +31,7 @@ else:
     raise Exception("Отсутствует токен бота в переменных окружения")
 
 obj = Task()
+money = Exchange()
 
 
 def actual_commands(message):
@@ -49,13 +52,7 @@ def start_message(message):
             "📝  добавлять задачи\n\n"\
             "✔️  изменять статус задачи\n\n"\
             "🗑️  удалять задачи"
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("💬 Команды")
-    btn2 = types.KeyboardButton("📜 Список задач")
-    btn3 = types.KeyboardButton("📝 Добавить задачу")
-    btn4 = types.KeyboardButton("💱 Курс 'МИР'")
-    markup.add(btn1, btn2, btn3, btn4)
-    bot.send_message(message.chat.id, text=text, reply_markup=markup)
+    bot.send_message(message.chat.id, text=text, reply_markup=permanent_kb())
     logging.info("Приветствие пользователя")
 
 
@@ -76,15 +73,10 @@ def take_description(message):
     bot.send_message(message.chat.id, "❕ Задача создана!")
     chat_id = message.chat.id
     ids, statuses, result = obj.get_created_task()
-    keyboard = types.InlineKeyboardMarkup()
-    delete_button = types.InlineKeyboardButton(
-        text="🗑️ Удалить задачу", callback_data=f'/delete {ids[0]}')
     if statuses[0] == 0:
-        status_button = types.InlineKeyboardButton(
-            text="✔️ Выполнить задачу", callback_data=f'/done {ids[0]}')
-        keyboard.add(status_button, delete_button)
+        keyboard = done_delete_kb(ids[0])
     else:
-        keyboard.add(delete_button)
+        keyboard = delete_kb(ids[0])
     bot.send_message(chat_id=chat_id, text=result[0], reply_markup=keyboard)
     logging.info("Задача создана")
 
@@ -102,8 +94,8 @@ def update_status(message):
     else:
         text = "❗ Задачи с данным id не существует"
     bot.send_message(chat_id=chat_id, text=text)
-    return False
     logging.info(f"Отработала функция UPDATE_STATUS: {text}")
+    return False
 
 
 def delete_task(message):
@@ -124,17 +116,10 @@ def get_task_list(message):
     ids, statuses, result = obj.select_tasks(message.from_user.id)
     if len(ids) > 0:
         for i in range(len(ids)):
-            keyboard = types.InlineKeyboardMarkup()
-            delete_button = types.InlineKeyboardButton(
-                text="🗑️ Удалить задачу",
-                callback_data=f'/delete {ids[i]}')
-            if statuses[i] == 0:
-                status_button = types.InlineKeyboardButton(
-                    text="✔️ Выполнить задачу",
-                    callback_data=f'/done {ids[i]}')
-                keyboard.add(status_button, delete_button)
+            if statuses[0] == 0:
+                keyboard = done_delete_kb(ids[0])
             else:
-                keyboard.add(delete_button)
+                keyboard = delete_kb(ids[0])
             bot.send_message(chat_id=chat_id, text=result[i],
                              reply_markup=keyboard)
         logging.info("Отработала функция GET_TASK_LIST")
@@ -145,13 +130,15 @@ def get_task_list(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
+    if call.data in parse_mir():
+        convert_currency(call)
+        return
     chat_id = call.message.chat.id
     arg = call.data.split()[1]
     if arg.isdigit():
         if call.data.startswith('/delete'):
             logging.info("Команда /delete запущена с кнопки")
-            result = delete_task(call)
-            if result:
+            if delete_task(call):
                 text = call.message.text.replace('💼', '').replace('✅', '')[:call.message.text.find('\n')]
                 new_message_text = f"{text} успешно удалена"
                 bot.edit_message_text(chat_id=call.message.chat.id,
@@ -160,12 +147,8 @@ def handle_query(call):
 
         elif call.data.startswith('/done'):
             logging.info("Команда /done запущена с кнопки")
-            result = update_status(call)
-            if result:
-                keyboard = types.InlineKeyboardMarkup()
-                button2 = types.InlineKeyboardButton(text='Удалить задачу',
-                                                     callback_data=f"/delete {call.data.split()[1]}")
-                keyboard.add(button2)
+            if update_status(call):
+                keyboard = delete_kb(call.data.split()[1])
                 new_message_text = call.message.text.replace('💼 Не выполнена', '✅ Выполнена')
                 bot.edit_message_text(chat_id=call.message.chat.id,
                                       message_id=call.message.message_id,
@@ -189,10 +172,43 @@ def urls(message):
         get_task_info(message)
     elif message.text == "💱 Курс 'МИР'":
         bot.send_message(message.chat.id, text=convert_to_rub())
+    elif message.text == "Конвертировать рубли в валюту":
+        count_curr_1(message)
     else:
         bot.send_message(message.chat.id, text="❗ Такой команды не существует")
         actual_commands(message)
 
 
+def count_curr_1(message):
+    bot.send_message(message.chat.id, "🔤 Введите сумму в рублях:")
+    bot.register_next_step_handler(message, count_curr_2)
+
+
+def count_curr_2(message):
+    if message.text.strip().isdigit():
+        money.__setattr__('value', float(message.text.replace(",", ".")))
+        keyboard = currency_kb(parse_mir())
+        bot.send_message(chat_id=message.chat.id, text="Выберите валюту в которую конвертируете:", reply_markup=keyboard)
+    else:
+        bot.send_message(message.chat.id, "🔤 Введите корректную сумму в рублях:")
+        bot.register_next_step_handler(message, count_curr_2)
+
+
+def convert_currency(call):
+    curr = parse_mir()[call.data]
+    res = money.value * curr
+    bot.send_message(call.message.chat.id, res)
+
+
 if __name__ == '__main__':
     bot.polling(none_stop=True)
+
+# 1 рубль == 4.433 - Армянский драм
+# 1 рубль == 28.811 - Белорусский рубль
+# 1 рубль == 3.063 - Венесуэльский боливар
+# 1 рубль == 272.777 - Вьетнамский донг
+# 1 рубль == 5.156 - Казахстанский тенге
+# 1 рубль == 1.361 - Кубинский песо
+# 1 рубль == 1.006 - Кыргызский сом
+# 1 рубль == 7.791 - Таджикский сомони
+# 1 рубль == 131.7 - Узбекский сум

@@ -110,3 +110,7 @@ class Task:
         logging.info("Удаляем запись из базы")
         cursor.execute('delete from tasks2 where id = ?;', (id,))
         self.__disconnect_from_db(conn)
+
+
+class Exchange:
+    pass
